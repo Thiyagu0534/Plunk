@@ -20,6 +20,7 @@ import {NtfyService} from '../../services/NtfyService.js';
 import {UserService} from '../../services/UserService.js';
 import {Keys} from '../../services/keys.js';
 import {CatchAsync} from '../../utils/asyncHandler.js';
+import {logger} from '../../utils/logger.js';
 
 const STATE_COOKIE = 'zoho_oauth_state';
 const NONCE_COOKIE = 'zoho_oauth_nonce';
@@ -216,6 +217,7 @@ export class Zoho {
       return loginError(res, 'Zoho sign-in is not configured for this account region.');
     }
 
+    let stage = 'token_exchange';
     try {
       const redirectUri = `${API_URI}/oauth/zoho/callback`;
       const tokenResponse = await fetchJson<{id_token?: string; error?: string}>(`${baseUrl}/oauth/v2/token`, {
@@ -230,11 +232,24 @@ export class Zoho {
         }),
       });
       if (!tokenResponse.id_token) {
+        const providerError = tokenResponse.error;
+        logger.warn(
+          'Zoho OAuth token response did not include an ID token',
+          {
+            providerError:
+              typeof providerError === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(providerError)
+                ? providerError
+                : 'unrecognized',
+          },
+          res,
+        );
         return loginError(res, 'Zoho could not complete sign-in. Please try again.');
       }
 
+      stage = 'id_token_verification';
       const claims = await verifyIdToken(tokenResponse.id_token, baseUrl, expectedNonce);
       const email = claims.email!.trim().toLowerCase();
+      stage = 'user_lookup';
       let user = await UserService.email(email);
       let isNewUser = false;
 
@@ -256,10 +271,17 @@ export class Zoho {
         await NtfyService.notifyUserOAuthSignup(user.email, user.id, 'Zoho');
       }
 
+      stage = 'session_creation';
       const token = jwt.sign(user.id);
       clearStateCookies(res);
       return res.cookie(UserService.COOKIE_NAME, token, UserService.cookieOptions()).redirect(DASHBOARD_URI);
     } catch (error) {
+      logger.error(
+        'Zoho OAuth callback failed',
+        undefined,
+        {stage, errorType: error instanceof Error ? error.name : typeof error},
+        res,
+      );
       if (error instanceof BadRequest) {
         return loginError(res, error.message);
       }

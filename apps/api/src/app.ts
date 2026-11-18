@@ -145,7 +145,13 @@ const server = new (class extends Server {
       })(req, res, next);
     });
 
-    this.app.use(morgan(NODE_ENV === 'development' ? 'dev' : 'short'));
+    // OAuth callbacks contain one-time authorization codes in their query string.
+    // Do not write the Zoho callback URL to access logs.
+    this.app.use(
+      morgan(NODE_ENV === 'development' ? 'dev' : 'short', {
+        skip: req => req.path === '/oauth/zoho/callback',
+      }),
+    );
 
     this.addControllers([
       new Actions(),
