@@ -7,6 +7,7 @@ import {
   DASHBOARD_URI,
   GITHUB_OAUTH_ENABLED,
   GOOGLE_OAUTH_ENABLED,
+  ZOHO_OAUTH_ENABLED,
   LANDING_URI,
   MAIL_FROM_SUBDOMAIN,
   NODE_ENV,
@@ -46,6 +47,7 @@ export class Config {
         authProviders: {
           github: GITHUB_OAUTH_ENABLED,
           google: GOOGLE_OAUTH_ENABLED,
+          zoho: ZOHO_OAUTH_ENABLED,
         },
         email: {
           trackingToggleEnabled: TRACKING_TOGGLE_ENABLED,

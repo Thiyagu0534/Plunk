@@ -48,10 +48,10 @@ export default function Login() {
     },
   });
 
-  const [lastUsed] = useState<'email' | 'google' | 'github' | null>(() => {
+  const [lastUsed] = useState<'email' | 'google' | 'github' | 'zoho' | null>(() => {
     if (typeof window === 'undefined') return null;
     const stored = localStorage.getItem('plunk_last_auth_method');
-    return stored === 'email' || stored === 'google' || stored === 'github' ? stored : null;
+    return stored === 'email' || stored === 'google' || stored === 'github' || stored === 'zoho' ? stored : null;
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showReset, setShowReset] = useState(false);
@@ -62,6 +62,7 @@ export default function Login() {
   const oauthConfig = {
     github: config?.features.authProviders.github ?? false,
     google: config?.features.authProviders.google ?? false,
+    zoho: config?.features.authProviders.zoho ?? false,
   };
 
   async function onSubmit(values: z.infer<typeof AuthenticationSchemas.login>) {
@@ -150,7 +151,7 @@ export default function Login() {
                       <p className="text-sm text-neutral-500">Sign in to your account</p>
                     </div>
 
-                    {(oauthConfig.github || oauthConfig.google) && (
+                    {(oauthConfig.github || oauthConfig.google || oauthConfig.zoho) && (
                       <>
                         <div className="grid gap-2">
                           {oauthConfig.google && (
@@ -208,6 +209,32 @@ export default function Login() {
                                 Continue with GitHub
                               </Button>
                               {lastUsed === 'github' && (
+                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400">
+                                  Last used
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {oauthConfig.zoho && (
+                            <div className="relative">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full"
+                                onClick={() => {
+                                  localStorage.setItem('plunk_last_auth_method', 'zoho');
+                                  window.location.href = `${API_URI}/oauth/zoho/outbound`;
+                                }}
+                              >
+                                <span aria-hidden className="font-bold tracking-tight">
+                                  <span className="text-[#e42527]">Z</span>
+                                  <span className="text-[#226db4]">o</span>
+                                  <span className="text-[#e9b11b]">h</span>
+                                  <span className="text-[#39a849]">o</span>
+                                </span>
+                                Continue with Zoho
+                              </Button>
+                              {lastUsed === 'zoho' && (
                                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400">
                                   Last used
                                 </span>

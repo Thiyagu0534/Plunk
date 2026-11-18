@@ -12,6 +12,7 @@ import {
   EMAIL_VERIFICATION_RATE_WINDOW,
   GITHUB_OAUTH_ENABLED,
   GOOGLE_OAUTH_ENABLED,
+  ZOHO_OAUTH_ENABLED,
   LANDING_URI,
   PASSWORD_RESET_RATE_LIMIT,
   PLUNK_ENABLED,
@@ -169,6 +170,7 @@ export class Auth {
       data: {
         github: GITHUB_OAUTH_ENABLED,
         google: GOOGLE_OAUTH_ENABLED,
+        zoho: ZOHO_OAUTH_ENABLED,
       },
     });
   }

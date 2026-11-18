@@ -636,6 +636,7 @@ enum AuthMethod {
   PASSWORD
   GOOGLE_OAUTH
   GITHUB_OAUTH
+  ZOHO_OAUTH
 }
 
 enum Role {

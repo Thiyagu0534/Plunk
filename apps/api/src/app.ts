@@ -12,6 +12,7 @@ import {
   DASHBOARD_URI,
   GITHUB_OAUTH_ENABLED,
   GOOGLE_OAUTH_ENABLED,
+  ZOHO_OAUTH_ENABLED,
   LANDING_URI,
   NODE_ENV,
   PLUNK_ENABLED,
@@ -422,6 +423,11 @@ void prisma.$connect().then(async () => {
       name: 'OAuth - Google',
       enabled: GOOGLE_OAUTH_ENABLED,
       details: GOOGLE_OAUTH_ENABLED ? 'Google login enabled' : 'Google OAuth not configured',
+    },
+    {
+      name: 'OAuth - Zoho',
+      enabled: ZOHO_OAUTH_ENABLED,
+      details: ZOHO_OAUTH_ENABLED ? 'Zoho login enabled' : 'Zoho OAuth not configured',
     },
     {
       name: 'Tracking toggle',

@@ -72,6 +72,11 @@ export const GOOGLE_OAUTH_CLIENT = validateEnv('GOOGLE_OAUTH_CLIENT', '');
 export const GOOGLE_OAUTH_SECRET = validateEnv('GOOGLE_OAUTH_SECRET', '');
 export const GOOGLE_OAUTH_ENABLED = GOOGLE_OAUTH_CLIENT !== '' && GOOGLE_OAUTH_SECRET !== '';
 
+export const ZOHO_OAUTH_CLIENT = validateEnv('ZOHO_OAUTH_CLIENT', '');
+export const ZOHO_OAUTH_SECRET = validateEnv('ZOHO_OAUTH_SECRET', '');
+export const ZOHO_OAUTH_ENABLED = ZOHO_OAUTH_CLIENT !== '' && ZOHO_OAUTH_SECRET !== '';
+export const ZOHO_ACCOUNTS_URL = validateEnv('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.com').replace(/\/$/, '');
+
 // Stripe (optional - if not set, billing features are disabled)
 export const STRIPE_SK = validateEnv('STRIPE_SK', '');
 export const STRIPE_WEBHOOK_SECRET = validateEnv('STRIPE_WEBHOOK_SECRET', '');
