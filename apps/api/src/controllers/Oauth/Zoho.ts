@@ -233,16 +233,11 @@ export class Zoho {
       });
       if (!tokenResponse.id_token) {
         const providerError = tokenResponse.error;
-        logger.warn(
-          'Zoho OAuth token response did not include an ID token',
-          {
-            providerError:
-              typeof providerError === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(providerError)
-                ? providerError
-                : 'unrecognized',
-          },
-          res,
-        );
+        const safeProviderError =
+          typeof providerError === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(providerError)
+            ? providerError
+            : 'unrecognized';
+        logger.warn(`Zoho OAuth token response did not include an ID token (${safeProviderError})`, undefined, res);
         return loginError(res, 'Zoho could not complete sign-in. Please try again.');
       }
 
@@ -276,12 +271,8 @@ export class Zoho {
       clearStateCookies(res);
       return res.cookie(UserService.COOKIE_NAME, token, UserService.cookieOptions()).redirect(DASHBOARD_URI);
     } catch (error) {
-      logger.error(
-        'Zoho OAuth callback failed',
-        undefined,
-        {stage, errorType: error instanceof Error ? error.name : typeof error},
-        res,
-      );
+      const errorType = error instanceof Error ? error.name : typeof error;
+      logger.error(`Zoho OAuth callback failed at ${stage} (${errorType})`, undefined, undefined, res);
       if (error instanceof BadRequest) {
         return loginError(res, error.message);
       }

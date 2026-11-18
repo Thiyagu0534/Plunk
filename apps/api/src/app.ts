@@ -147,10 +147,13 @@ const server = new (class extends Server {
 
     // OAuth callbacks contain one-time authorization codes in their query string.
     // Do not write the Zoho callback URL to access logs.
+    morgan.token('safe-url', req => {
+      const url = req.originalUrl || req.url || '';
+      const path = url.split('?')[0];
+      return path === '/oauth/zoho/callback' ? path : url;
+    });
     this.app.use(
-      morgan(NODE_ENV === 'development' ? 'dev' : 'short', {
-        skip: req => req.path === '/oauth/zoho/callback',
-      }),
+      morgan(':remote-addr - :method :safe-url :status :res[content-length] - :response-time ms'),
     );
 
     this.addControllers([
