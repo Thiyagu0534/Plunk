@@ -136,7 +136,10 @@ async function verifyIdToken(idToken: string, baseUrl: string, expectedNonce: st
     throw new Error('Zoho signing key was not found');
   }
 
-  const publicKey = createPublicKey({key: jwk as JsonWebKey, format: 'jwk'});
+  const publicKey = createPublicKey({
+    key: jwk as unknown as import('node:crypto').JsonWebKey,
+    format: 'jwk',
+  });
   const claims = jsonwebtoken.verify(idToken, publicKey, {
     algorithms: ['RS256'],
     audience: ZOHO_OAUTH_CLIENT,
