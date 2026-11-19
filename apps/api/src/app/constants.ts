@@ -78,6 +78,11 @@ export const ZOHO_OAUTH_ENABLED = ZOHO_OAUTH_CLIENT !== '' && ZOHO_OAUTH_SECRET 
 export const ZOHO_ACCOUNTS_URL = validateEnv('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.com').replace(/\/$/, '');
 export const ZOHO_OIDC_DISCOVERY_URL = validateEnv('ZOHO_OIDC_DISCOVERY_URL', '').replace(/\/$/, '');
 
+// ERPNext read-only API credentials. These are used only by the API server.
+export const ERP_URL = validateEnv('ERP_URL', 'https://erp.salesneuron.com').replace(/\/$/, '');
+export const ERP_API_KEY = validateEnv('ERP_API_KEY', '');
+export const ERP_API_SECRET = validateEnv('ERP_API_SECRET', '');
+
 // Stripe (optional - if not set, billing features are disabled)
 export const STRIPE_SK = validateEnv('STRIPE_SK', '');
 export const STRIPE_WEBHOOK_SECRET = validateEnv('STRIPE_WEBHOOK_SECRET', '');

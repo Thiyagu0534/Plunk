@@ -168,6 +168,12 @@ services:
       ZOHO_ACCOUNTS_URL: ${ZOHO_ACCOUNTS_URL:-https://accounts.zoho.com}
       ZOHO_OIDC_DISCOVERY_URL: ${ZOHO_OIDC_DISCOVERY_URL:-}
 
+      # Optional: read-only ERPNext Lead view in Contacts. Credentials stay in
+      # the API container and are never sent to browsers.
+      ERP_URL: ${ERP_URL:-https://erp.salesneuron.com}
+      ERP_API_KEY: ${ERP_API_KEY:-}
+      ERP_API_SECRET: ${ERP_API_SECRET:-}
+
       # Optional: Stripe
       STRIPE_SK: ${STRIPE_SK:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

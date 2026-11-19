@@ -8,6 +8,7 @@ import {requireAuth, requireEmailVerified} from '../middleware/auth.js';
 import {ContactService} from '../services/ContactService.js';
 import {QueueService} from '../services/QueueService.js';
 import {CatchAsync} from '../utils/asyncHandler.js';
+import {ERP_API_KEY, ERP_API_SECRET, ERP_URL} from '../app/constants.js';
 
 // Configure multer for file uploads (memory storage)
 const upload = multer({
@@ -26,6 +27,90 @@ const upload = multer({
 
 @Controller('contacts')
 export class Contacts {
+  /**
+   * GET /contacts/erp-leads
+   * Read the current ERP Lead list through the scraper server. This is a
+   * read-only view; Plunk subscriber records remain available to campaigns.
+   */
+  @Get('erp-leads')
+  @Middleware([requireAuth, requireEmailVerified])
+  @CatchAsync
+  public async listErpLeads(_req: Request, res: Response) {
+    if (!ERP_API_KEY || !ERP_API_SECRET) {
+      return res.status(503).json({error: 'ERPNext API credentials are not configured on the Plunk server'});
+    }
+
+    const fields = [
+      'name',
+      'email_id',
+      'lead_name',
+      'first_name',
+      'company_name',
+      'mobile_no',
+      'custom_store_size',
+      'custom_pincode',
+    ];
+    const headers = {
+      Authorization: `token ${ERP_API_KEY}:${ERP_API_SECRET}`,
+      Accept: 'application/json',
+    };
+    const leads: Array<Record<string, unknown>> = [];
+    const pageSize = 500;
+    const maxRecords = 10_000;
+
+    for (let start = 0; start < maxRecords; start += pageSize) {
+      const url = new URL(`${ERP_URL}/api/resource/Lead`);
+      url.searchParams.set('fields', JSON.stringify(fields));
+      url.searchParams.set('filters', JSON.stringify([['email_id', 'like', '%@%']]));
+      url.searchParams.set('limit_start', String(start));
+      url.searchParams.set('limit_page_length', String(pageSize));
+
+      let response: globalThis.Response;
+      try {
+        response = await fetch(url, {headers, signal: AbortSignal.timeout(30000)});
+      } catch {
+        return res.status(502).json({error: 'Could not reach ERPNext to load Leads'});
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        return res.status(502).json({error: 'ERPNext rejected the API credentials or Lead read permission'});
+      }
+      if (!response.ok) {
+        return res.status(502).json({error: `ERPNext Lead request failed (HTTP ${response.status})`});
+      }
+
+      let page: Array<Record<string, unknown>>;
+      try {
+        const payload = (await response.json()) as {data?: unknown};
+        if (!Array.isArray(payload.data)) throw new Error('Invalid Lead data');
+        page = payload.data as Array<Record<string, unknown>>;
+      } catch {
+        return res.status(502).json({error: 'ERPNext returned an invalid Lead response'});
+      }
+
+      for (const lead of page) {
+        const email = String(lead.email_id ?? '').trim();
+        if (!email) continue;
+        leads.push({
+          erp_lead_id: String(lead.name ?? ''),
+          email,
+          lead_name: String(lead.lead_name ?? ''),
+          first_name: String(lead.first_name ?? ''),
+          company_name: String(lead.company_name ?? ''),
+          mobile_no: String(lead.mobile_no ?? ''),
+          store_size: String(lead.custom_store_size ?? ''),
+          pincode: String(lead.custom_pincode ?? ''),
+        });
+      }
+
+      if (page.length < pageSize) {
+        return res.status(200).json({leads, total: leads.length});
+      }
+    }
+
+    return res.status(200).json({leads, total: leads.length, truncated: true});
+  }
+
   /**
    * GET /contacts
    * List all contacts for the authenticated project with cursor-based pagination
