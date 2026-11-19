@@ -105,6 +105,16 @@ export class ContactService {
     });
   }
 
+  /** Find a contact without creating a duplicate when the same address has different casing. */
+  public static async findByEmailIgnoreCase(projectId: string, email: string): Promise<Contact | null> {
+    return prisma.contact.findFirst({
+      where: {
+        projectId,
+        email: {equals: email, mode: 'insensitive'},
+      },
+    });
+  }
+
   /**
    * Create a new contact
    * Uses unique constraint violation to check for duplicates (more efficient)

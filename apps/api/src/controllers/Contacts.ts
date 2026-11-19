@@ -109,6 +109,94 @@ export class Contacts {
     return res.status(200).json({leads, total: leads.length, truncated: true});
   }
 
+  /** Add selected ERP Leads with usable email addresses to the active project. */
+  @Post('erp-leads/subscribe')
+  @Middleware([requireAuth, requireEmailVerified])
+  @CatchAsync
+  public async subscribeErpLeads(req: Request, res: Response) {
+    const rawIds = req.body?.leadIds;
+    if (!Array.isArray(rawIds) || rawIds.length === 0 || rawIds.length > 100) {
+      return res.status(400).json({error: 'Select between 1 and 100 ERP Leads'});
+    }
+    const leadIds = [...new Set(rawIds.filter((id): id is string => typeof id === 'string').map(id => id.trim()).filter(Boolean))];
+    if (!leadIds.length) return res.status(400).json({error: 'No valid ERP Lead IDs were supplied'});
+    if (!ERP_API_KEY || !ERP_API_SECRET) {
+      return res.status(503).json({error: 'ERPNext API credentials are not configured on the Plunk server'});
+    }
+
+    const fields = ['name', 'email_id', 'lead_name', 'first_name', 'company_name', 'mobile_no', 'custom_store_size', 'custom_pincode'];
+    const url = new URL(`${ERP_URL}/api/resource/Lead`);
+    url.searchParams.set('fields', JSON.stringify(fields));
+    url.searchParams.set('filters', JSON.stringify([['name', 'in', leadIds]]));
+    url.searchParams.set('limit_page_length', String(leadIds.length));
+
+    let response: globalThis.Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          Authorization: `token ${ERP_API_KEY}:${ERP_API_SECRET}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch {
+      return res.status(502).json({error: 'Could not reach ERPNext to add the selected Leads'});
+    }
+    if (!response.ok) {
+      return res.status(502).json({error: `ERPNext Lead request failed (HTTP ${response.status})`});
+    }
+
+    let erpLeads: Array<Record<string, unknown>>;
+    try {
+      const payload = (await response.json()) as {data?: unknown};
+      if (!Array.isArray(payload.data)) throw new Error('Invalid Lead data');
+      erpLeads = payload.data as Array<Record<string, unknown>>;
+    } catch {
+      return res.status(502).json({error: 'ERPNext returned an invalid Lead response'});
+    }
+
+    const auth = res.locals.auth;
+    const summary = {created: 0, updated: 0, skippedWithoutEmail: 0, skippedUnsubscribed: 0, failed: 0};
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const lead of erpLeads) {
+      const email = String(lead.email_id ?? '').trim().toLowerCase();
+      if (!emailPattern.test(email)) {
+        summary.skippedWithoutEmail++;
+        continue;
+      }
+
+      const contactData = {
+        erp_lead_id: String(lead.name ?? ''),
+        lead_name: String(lead.lead_name ?? ''),
+        first_name: String(lead.first_name ?? ''),
+        company_name: String(lead.company_name ?? ''),
+        mobile_no: String(lead.mobile_no ?? ''),
+        store_size: String(lead.custom_store_size ?? ''),
+        pincode: String(lead.custom_pincode ?? ''),
+      };
+
+      try {
+        const existing = await ContactService.findByEmailIgnoreCase(auth.projectId!, email);
+        if (existing?.subscribed === false) {
+          // Respect a previous unsubscribe; an ERP selection must not override it.
+          summary.skippedUnsubscribed++;
+          continue;
+        }
+        if (existing) {
+          await ContactService.upsert(auth.projectId!, existing.email, contactData, undefined);
+          summary.updated++;
+        } else {
+          await ContactService.upsert(auth.projectId!, email, contactData, true);
+          summary.created++;
+        }
+      } catch {
+        summary.failed++;
+      }
+    }
+
+    return res.status(200).json(summary);
+  }
+
   /**
    * GET /contacts
    * List all contacts for the authenticated project with cursor-based pagination

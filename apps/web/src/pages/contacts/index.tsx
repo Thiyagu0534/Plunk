@@ -5,6 +5,7 @@ import {NextSeo} from 'next-seo';
 import Link from 'next/link';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {Loader2, RefreshCw, Search} from 'lucide-react';
+import {toast} from 'sonner';
 
 interface ErpLead {
   erp_lead_id: string;
@@ -23,7 +24,16 @@ interface ErpLeadResponse {
   truncated?: boolean;
 }
 
+interface SubscribeLeadsResult {
+  created: number;
+  updated: number;
+  skippedWithoutEmail: number;
+  skippedUnsubscribed: number;
+  failed: number;
+}
+
 const PAGE_SIZE = 50;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ContactsPage() {
   const [leads, setLeads] = useState<ErpLead[]>([]);
@@ -32,6 +42,8 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [truncated, setTruncated] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [subscribing, setSubscribing] = useState(false);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -40,6 +52,7 @@ export default function ContactsPage() {
       const result = await network.fetch<ErpLeadResponse>('GET', '/contacts/erp-leads');
       setLeads(result.leads);
       setTruncated(Boolean(result.truncated));
+      setSelectedLeadIds(new Set());
       setPage(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load ERP Leads');
@@ -69,6 +82,60 @@ export default function ContactsPage() {
 
   const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
   const pageLeads = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const selectablePageLeads = pageLeads.filter(lead => EMAIL_PATTERN.test(lead.email || ''));
+  const selectedEmailLeadIds = [...selectedLeadIds].filter(id =>
+    leads.some(lead => lead.erp_lead_id === id && EMAIL_PATTERN.test(lead.email || '')),
+  );
+  const allSelectablePageLeadsSelected = selectablePageLeads.length > 0 &&
+    selectablePageLeads.every(lead => selectedLeadIds.has(lead.erp_lead_id));
+
+  const toggleLead = (leadId: string) => {
+    setSelectedLeadIds(current => {
+      const next = new Set(current);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+  };
+
+  const togglePageLeads = () => {
+    setSelectedLeadIds(current => {
+      const next = new Set(current);
+      for (const lead of selectablePageLeads) {
+        if (allSelectablePageLeadsSelected) next.delete(lead.erp_lead_id);
+        else next.add(lead.erp_lead_id);
+      }
+      return next;
+    });
+  };
+
+  const subscribeSelected = async () => {
+    if (!selectedEmailLeadIds.length || subscribing) return;
+    if (!window.confirm(
+      `Add ${selectedEmailLeadIds.length} selected Lead email${selectedEmailLeadIds.length === 1 ? '' : 's'} to this Plunk project as subscribed? No email will be sent now. Only subscribe people who have agreed to receive your emails. Previously unsubscribed contacts will remain unsubscribed.`,
+    )) return;
+
+    setSubscribing(true);
+    try {
+      const result = await network.fetch<SubscribeLeadsResult, any>(
+        'POST',
+        '/contacts/erp-leads/subscribe',
+        {leadIds: selectedEmailLeadIds},
+      );
+      setSelectedLeadIds(new Set());
+      const parts = [];
+      if (result.created) parts.push(`${result.created} added`);
+      if (result.updated) parts.push(`${result.updated} updated`);
+      if (result.skippedUnsubscribed) parts.push(`${result.skippedUnsubscribed} already unsubscribed`);
+      if (result.skippedWithoutEmail) parts.push(`${result.skippedWithoutEmail} without a valid email`);
+      if (result.failed) parts.push(`${result.failed} failed`);
+      toast.success(parts.join(' · ') || 'No contacts changed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not subscribe the selected Leads');
+    } finally {
+      setSubscribing(false);
+    }
+  };
 
   return (
     <>
@@ -83,6 +150,12 @@ export default function ContactsPage() {
               </p>
             </div>
             <div className="flex gap-2">
+              {selectedEmailLeadIds.length > 0 && (
+                <Button onClick={() => void subscribeSelected()} disabled={subscribing}>
+                  {subscribing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Subscribe selected ({selectedEmailLeadIds.length})
+                </Button>
+              )}
               <Button variant="outline" onClick={() => void loadLeads()} disabled={loading}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 Refresh
@@ -110,7 +183,7 @@ export default function ContactsPage() {
             {error ? (
               <div className="p-8 text-center">
                 <p className="text-sm text-red-600">{error}</p>
-                <p className="mt-2 text-xs text-neutral-500">The Plunk server needs its ERP Lead proxy URL and token configured.</p>
+                <p className="mt-2 text-xs text-neutral-500">Check the Plunk server’s ERPNext URL, API credentials, and Lead read permissions.</p>
                 <Button className="mt-4" variant="outline" onClick={() => void loadLeads()}>Try again</Button>
               </div>
             ) : loading ? (
@@ -127,6 +200,16 @@ export default function ContactsPage() {
                   <table className="w-full min-w-[900px] text-left text-sm">
                     <thead className="bg-neutral-50 text-xs uppercase text-neutral-500">
                       <tr>
+                        <th className="w-12 px-4 py-3">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all Leads with email on this page"
+                            checked={allSelectablePageLeadsSelected}
+                            onChange={togglePageLeads}
+                            disabled={!selectablePageLeads.length || subscribing}
+                            className="rounded border-neutral-300"
+                          />
+                        </th>
                         <th className="px-5 py-3">Lead</th>
                         <th className="px-5 py-3">Email</th>
                         <th className="px-5 py-3">Company</th>
@@ -139,6 +222,17 @@ export default function ContactsPage() {
                     <tbody className="divide-y divide-neutral-200">
                       {pageLeads.map(lead => (
                         <tr key={lead.erp_lead_id || lead.email} className="hover:bg-neutral-50">
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${lead.lead_name || lead.email || lead.erp_lead_id}`}
+                              checked={selectedLeadIds.has(lead.erp_lead_id)}
+                              onChange={() => toggleLead(lead.erp_lead_id)}
+                              disabled={!EMAIL_PATTERN.test(lead.email || '') || subscribing}
+                              title={EMAIL_PATTERN.test(lead.email || '') ? 'Select this Lead to add it to Plunk' : 'This Lead has no valid email address'}
+                              className="rounded border-neutral-300 disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          </td>
                           <td className="px-5 py-3 font-medium text-neutral-900">{lead.lead_name || lead.first_name || '—'}</td>
                           <td className="px-5 py-3 text-neutral-700">{lead.email || '—'}</td>
                           <td className="px-5 py-3 text-neutral-700">{lead.company_name || '—'}</td>
