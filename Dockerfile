@@ -247,6 +247,9 @@ RUN --mount=type=cache,target=/root/.npm \
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 plunk
+RUN mkdir -p /home/plunk/.pm2 && chown -R plunk:nodejs /home/plunk
+ENV HOME=/home/plunk
+ENV PM2_HOME=/home/plunk/.pm2
 
 # Create nginx directories and set permissions
 RUN mkdir -p /var/log/nginx /var/lib/nginx /run/nginx && \

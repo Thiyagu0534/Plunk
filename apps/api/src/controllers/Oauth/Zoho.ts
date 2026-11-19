@@ -141,20 +141,36 @@ async function verifyIdToken(idToken: string, baseUrl: string, expectedNonce: st
   }
 
   const jwks = await fetchJson<{keys?: ZohoJwk[]}>(configuration.jwks_uri);
-  const jwk = jwks.keys?.find(key => (key.kid === headerKeyId || key.key_id === headerKeyId) && key.kty === 'RSA');
-  if (!jwk) {
+  const rsaKeys = (jwks.keys ?? []).filter(
+    key => key.kty === 'RSA' && (!key.alg || key.alg === 'RS256') && (!key.use || key.use === 'sig'),
+  );
+  const matchingKeys = rsaKeys.filter(key => key.kid === headerKeyId || key.key_id === headerKeyId);
+  const candidateKeys = matchingKeys.length > 0 ? matchingKeys : rsaKeys;
+  if (candidateKeys.length === 0) {
     throw new Error('Zoho signing key was not found');
   }
 
-  const publicKey = createPublicKey({
-    key: jwk as unknown as import('node:crypto').JsonWebKey,
-    format: 'jwk',
-  });
-  const claims = jsonwebtoken.verify(idToken, publicKey, {
-    algorithms: ['RS256'],
-    audience: ZOHO_OAUTH_CLIENT,
-    issuer: configuration.issuer,
-  }) as ZohoClaims;
+  let claims: ZohoClaims | undefined;
+  let verificationError: unknown;
+  for (const jwk of candidateKeys) {
+    try {
+      const publicKey = createPublicKey({
+        key: jwk as unknown as import('node:crypto').JsonWebKey,
+        format: 'jwk',
+      });
+      claims = jsonwebtoken.verify(idToken, publicKey, {
+        algorithms: ['RS256'],
+        audience: ZOHO_OAUTH_CLIENT,
+        issuer: configuration.issuer,
+      }) as ZohoClaims;
+      break;
+    } catch (error) {
+      verificationError = error;
+    }
+  }
+  if (!claims) {
+    throw verificationError instanceof Error ? verificationError : new Error('Zoho ID token signature could not be verified');
+  }
 
   if (claims.nonce !== expectedNonce) {
     throw new Error('Zoho ID token nonce did not match');
