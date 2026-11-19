@@ -20,6 +20,7 @@ interface ErpLead {
 interface ErpLeadResponse {
   leads: ErpLead[];
   total: number;
+  truncated?: boolean;
 }
 
 const PAGE_SIZE = 50;
@@ -30,6 +31,7 @@ export default function ContactsPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [truncated, setTruncated] = useState(false);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -37,6 +39,7 @@ export default function ContactsPage() {
     try {
       const result = await network.fetch<ErpLeadResponse>('GET', '/contacts/erp-leads');
       setLeads(result.leads);
+      setTruncated(Boolean(result.truncated));
       setPage(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load ERP Leads');
@@ -76,7 +79,7 @@ export default function ContactsPage() {
             <div>
               <h1 className="text-2xl font-bold text-neutral-900 sm:text-3xl">ERP Leads</h1>
               <p className="mt-2 text-sm text-neutral-500 sm:text-base">
-                Live read-only view of leads from ERPNext that have an email address.
+                Live read-only view of all leads from ERPNext.
               </p>
             </div>
             <div className="flex gap-2">
@@ -116,7 +119,7 @@ export default function ContactsPage() {
               </div>
             ) : pageLeads.length === 0 ? (
               <div className="p-12 text-center text-sm text-neutral-500">
-                {search ? 'No leads match your search.' : 'ERPNext returned no leads with email addresses.'}
+                {search ? 'No leads match your search.' : 'ERPNext returned no leads.'}
               </div>
             ) : (
               <>
@@ -137,7 +140,7 @@ export default function ContactsPage() {
                       {pageLeads.map(lead => (
                         <tr key={lead.erp_lead_id || lead.email} className="hover:bg-neutral-50">
                           <td className="px-5 py-3 font-medium text-neutral-900">{lead.lead_name || lead.first_name || '—'}</td>
-                          <td className="px-5 py-3 text-neutral-700">{lead.email}</td>
+                          <td className="px-5 py-3 text-neutral-700">{lead.email || '—'}</td>
                           <td className="px-5 py-3 text-neutral-700">{lead.company_name || '—'}</td>
                           <td className="px-5 py-3 text-neutral-700">{lead.mobile_no || '—'}</td>
                           <td className="px-5 py-3 text-neutral-700">{lead.store_size || '—'}</td>
@@ -149,7 +152,10 @@ export default function ContactsPage() {
                   </table>
                 </div>
                 <div className="flex items-center justify-between border-t border-neutral-200 px-5 py-3 text-sm text-neutral-500">
-                  <span>{filtered.length ? `${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min((page + 1) * PAGE_SIZE, filtered.length).toLocaleString()} of ${filtered.length.toLocaleString()}` : '0 leads'}</span>
+                  <span>
+                    {filtered.length ? `${(page * PAGE_SIZE + 1).toLocaleString()}–${Math.min((page + 1) * PAGE_SIZE, filtered.length).toLocaleString()} of ${filtered.length.toLocaleString()}` : '0 leads'}
+                    {truncated && <span className="ml-2 text-amber-700">Showing the first 10,000 Leads.</span>}
+                  </span>
                   <div className="flex gap-2">
                     <Button variant="outline" disabled={page === 0} onClick={() => setPage(current => current - 1)}>Previous</Button>
                     <Button variant="outline" disabled={page + 1 >= pageCount} onClick={() => setPage(current => current + 1)}>Next</Button>

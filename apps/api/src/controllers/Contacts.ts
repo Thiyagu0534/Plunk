@@ -29,7 +29,7 @@ const upload = multer({
 export class Contacts {
   /**
    * GET /contacts/erp-leads
-   * Read the current ERP Lead list through the scraper server. This is a
+   * Read the current ERP Lead list directly from ERPNext. This is a
    * read-only view; Plunk subscriber records remain available to campaigns.
    */
   @Get('erp-leads')
@@ -61,7 +61,6 @@ export class Contacts {
     for (let start = 0; start < maxRecords; start += pageSize) {
       const url = new URL(`${ERP_URL}/api/resource/Lead`);
       url.searchParams.set('fields', JSON.stringify(fields));
-      url.searchParams.set('filters', JSON.stringify([['email_id', 'like', '%@%']]));
       url.searchParams.set('limit_start', String(start));
       url.searchParams.set('limit_page_length', String(pageSize));
 
@@ -90,7 +89,6 @@ export class Contacts {
 
       for (const lead of page) {
         const email = String(lead.email_id ?? '').trim();
-        if (!email) continue;
         leads.push({
           erp_lead_id: String(lead.name ?? ''),
           email,
