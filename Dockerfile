@@ -229,13 +229,15 @@ RUN mkdir -p \
 # ============================================
 # Stage 3: Production Runtime
 # ============================================
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 WORKDIR /app
 
-# Install OpenSSL for Prisma, curl for health checks, nginx, and gettext (for envsubst)
-RUN apk add --no-cache openssl curl nginx gettext
+# Install OpenSSL for Prisma, curl for health checks, nginx, and gettext (for envsubst).
+# Keep the runtime on glibc to match the Prisma engines generated in the Debian builder.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl curl nginx gettext-base && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install PM2 globally for process management
 # Use cache mount and specific version to prevent hangs

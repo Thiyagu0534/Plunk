@@ -49,6 +49,7 @@ interface ZohoOidcConfiguration {
 
 interface ZohoJwk {
   kid?: string;
+  key_id?: string;
   kty?: string;
   use?: string;
   alg?: string;
@@ -127,12 +128,20 @@ async function verifyIdToken(idToken: string, baseUrl: string, expectedNonce: st
   }
 
   const decoded = jsonwebtoken.decode(idToken, {complete: true});
-  if (!decoded || typeof decoded === 'string' || decoded.header.alg !== 'RS256' || !decoded.header.kid) {
+  const headerKeyId =
+    decoded && typeof decoded !== 'string'
+      ? typeof decoded.header.kid === 'string'
+        ? decoded.header.kid
+        : typeof (decoded.header as typeof decoded.header & {key_id?: string}).key_id === 'string'
+          ? (decoded.header as typeof decoded.header & {key_id?: string}).key_id
+          : undefined
+      : undefined;
+  if (!decoded || typeof decoded === 'string' || decoded.header.alg !== 'RS256' || !headerKeyId) {
     throw new Error('Zoho returned an invalid ID token');
   }
 
   const jwks = await fetchJson<{keys?: ZohoJwk[]}>(configuration.jwks_uri);
-  const jwk = jwks.keys?.find(key => key.kid === decoded.header.kid && key.kty === 'RSA');
+  const jwk = jwks.keys?.find(key => (key.kid === headerKeyId || key.key_id === headerKeyId) && key.kty === 'RSA');
   if (!jwk) {
     throw new Error('Zoho signing key was not found');
   }
@@ -271,8 +280,20 @@ export class Zoho {
       clearStateCookies(res);
       return res.cookie(UserService.COOKIE_NAME, token, UserService.cookieOptions()).redirect(DASHBOARD_URI);
     } catch (error) {
-      const errorType = error instanceof Error ? error.name : typeof error;
-      logger.error(`Zoho OAuth callback failed at ${stage} (${errorType})`, undefined, undefined, res);
+      const safeErrors = new Set([
+        'Zoho returned invalid OpenID configuration',
+        'Zoho returned an invalid ID token',
+        'Zoho signing key was not found',
+        'Zoho ID token nonce did not match',
+        'Zoho did not return a verified email address',
+      ]);
+      const safeReason =
+        error instanceof Error && (safeErrors.has(error.message) || /^Zoho returned HTTP \d{3}$/.test(error.message))
+          ? error.message
+          : error instanceof Error
+            ? error.name
+            : typeof error;
+      logger.error(`Zoho OAuth callback failed at ${stage} (${safeReason})`, undefined, undefined, res);
       if (error instanceof BadRequest) {
         return loginError(res, error.message);
       }
