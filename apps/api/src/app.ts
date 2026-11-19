@@ -149,7 +149,7 @@ const server = new (class extends Server {
     // Do not write the Zoho callback URL to access logs.
     morgan.token('safe-url', req => {
       const url = req.url || '';
-      const path = url.split('?')[0];
+      const path = url.split('?')[0] ?? '';
       return path === '/oauth/zoho/callback' || path.endsWith('/callback') ? path : url;
     });
     this.app.use(
