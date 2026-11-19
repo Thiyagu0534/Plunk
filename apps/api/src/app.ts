@@ -150,7 +150,7 @@ const server = new (class extends Server {
     morgan.token('safe-url', req => {
       const url = req.url || '';
       const path = url.split('?')[0];
-      return path === '/oauth/zoho/callback' ? path : url;
+      return path === '/oauth/zoho/callback' || path.endsWith('/callback') ? path : url;
     });
     this.app.use(
       morgan(':remote-addr - :method :safe-url :status :res[content-length] - :response-time ms'),
