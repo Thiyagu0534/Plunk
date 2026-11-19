@@ -11,6 +11,7 @@ import {
   ZOHO_OAUTH_CLIENT,
   ZOHO_OAUTH_ENABLED,
   ZOHO_OAUTH_SECRET,
+  ZOHO_OIDC_DISCOVERY_URL,
 } from '../../app/constants.js';
 import {prisma} from '../../database/prisma.js';
 import {redis} from '../../database/redis.js';
@@ -25,6 +26,7 @@ import {logger} from '../../utils/logger.js';
 const STATE_COOKIE = 'zoho_oauth_state';
 const NONCE_COOKIE = 'zoho_oauth_nonce';
 const STATE_TTL_MS = 10 * 60 * 1000;
+const ALLOWED_ZOHO_DIRECTORY_HOSTS = new Set(['directory.zoho.com']);
 const ALLOWED_ZOHO_ACCOUNTS_HOSTS = new Set([
   'accounts.zoho.com',
   'accounts.zoho.in',
@@ -44,6 +46,7 @@ interface ZohoOidcConfiguration {
   issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
+  userinfo_endpoint: string;
   jwks_uri: string;
 }
 
@@ -67,6 +70,12 @@ interface ZohoClaims extends JwtPayload {
   name?: string;
 }
 
+interface ZohoUserInfo {
+  sub?: string;
+  email?: string;
+  email_verified?: boolean;
+}
+
 function accountBase(value: string): string | null {
   try {
     const url = new URL(value);
@@ -77,6 +86,41 @@ function accountBase(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function allowedHttpsUrl(value: string, hosts: Set<string>): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && hosts.has(url.hostname.toLowerCase()) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+async function oidcConfiguration(accountsBase: string): Promise<ZohoOidcConfiguration> {
+  const directoryMode = ZOHO_OIDC_DISCOVERY_URL !== '';
+  const discoveryUrl = directoryMode ? ZOHO_OIDC_DISCOVERY_URL : `${accountsBase}/.well-known/openid-configuration`;
+  if (
+    directoryMode
+      ? !allowedHttpsUrl(discoveryUrl, ALLOWED_ZOHO_DIRECTORY_HOSTS)
+      : !allowedHttpsUrl(discoveryUrl, ALLOWED_ZOHO_ACCOUNTS_HOSTS)
+  ) {
+    throw new Error('Zoho returned invalid OpenID configuration');
+  }
+
+  const configuration = await fetchJson<ZohoOidcConfiguration>(discoveryUrl);
+  const issuerHosts = ALLOWED_ZOHO_ACCOUNTS_HOSTS;
+  const endpointHosts = directoryMode ? ALLOWED_ZOHO_DIRECTORY_HOSTS : ALLOWED_ZOHO_ACCOUNTS_HOSTS;
+  if (
+    !allowedHttpsUrl(configuration.issuer, issuerHosts) ||
+    !allowedHttpsUrl(configuration.authorization_endpoint, endpointHosts) ||
+    !allowedHttpsUrl(configuration.token_endpoint, endpointHosts) ||
+    !allowedHttpsUrl(configuration.userinfo_endpoint, endpointHosts) ||
+    !allowedHttpsUrl(configuration.jwks_uri, endpointHosts)
+  ) {
+    throw new Error('Zoho returned invalid OpenID configuration');
+  }
+  return configuration;
 }
 
 function cookieOptions() {
@@ -114,19 +158,11 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function verifyIdToken(idToken: string, baseUrl: string, expectedNonce: string): Promise<ZohoClaims> {
-  const configuration = await fetchJson<ZohoOidcConfiguration>(`${baseUrl}/.well-known/openid-configuration`);
-  const issuerUrl = new URL(configuration.issuer);
-  const jwksUrl = new URL(configuration.jwks_uri);
-  if (
-    issuerUrl.protocol !== 'https:' ||
-    jwksUrl.protocol !== 'https:' ||
-    !ALLOWED_ZOHO_ACCOUNTS_HOSTS.has(issuerUrl.hostname.toLowerCase()) ||
-    !ALLOWED_ZOHO_ACCOUNTS_HOSTS.has(jwksUrl.hostname.toLowerCase())
-  ) {
-    throw new Error('Zoho returned invalid OpenID configuration');
-  }
-
+async function verifyIdToken(
+  idToken: string,
+  configuration: ZohoOidcConfiguration,
+  expectedNonce: string,
+): Promise<ZohoClaims> {
   const decoded = jsonwebtoken.decode(idToken, {complete: true});
   const headerKeyId =
     decoded && typeof decoded !== 'string'
@@ -175,16 +211,14 @@ async function verifyIdToken(idToken: string, baseUrl: string, expectedNonce: st
   if (claims.nonce !== expectedNonce) {
     throw new Error('Zoho ID token nonce did not match');
   }
-  if (claims.email_verified !== true || typeof claims.email !== 'string' || !claims.email.trim()) {
-    throw new Error('Zoho did not return a verified email address');
-  }
   return claims;
 }
 
 @Controller('zoho')
 export class Zoho {
   @Get('outbound')
-  public sendToOutbound(_req: Request, res: Response) {
+  @CatchAsync
+  public async sendToOutbound(_req: Request, res: Response) {
     if (!ZOHO_OAUTH_ENABLED) {
       return res.status(404).json({error: 'Zoho OAuth is not configured'});
     }
@@ -194,9 +228,11 @@ export class Zoho {
       return res.status(500).json({error: 'ZOHO_ACCOUNTS_URL is not a supported Zoho Accounts URL'});
     }
 
+    const configuration = await oidcConfiguration(baseUrl);
+
     const state = randomBytes(32).toString('base64url');
     const nonce = randomBytes(32).toString('base64url');
-    const authorizeUrl = new URL('/oauth/v2/auth', baseUrl);
+    const authorizeUrl = new URL(configuration.authorization_endpoint);
     authorizeUrl.search = new URLSearchParams({
       response_type: 'code',
       client_id: ZOHO_OAUTH_CLIENT,
@@ -236,16 +272,21 @@ export class Zoho {
       return loginError(res, 'Zoho sign-in was cancelled or returned no authorization code.');
     }
 
-    const baseUrl =
-      typeof accountsServer === 'string' ? accountBase(accountsServer) || accountBase(ZOHO_ACCOUNTS_URL) : accountBase(ZOHO_ACCOUNTS_URL);
+    const baseUrl = ZOHO_OIDC_DISCOVERY_URL
+      ? accountBase(ZOHO_ACCOUNTS_URL)
+      : typeof accountsServer === 'string'
+        ? accountBase(accountsServer) || accountBase(ZOHO_ACCOUNTS_URL)
+        : accountBase(ZOHO_ACCOUNTS_URL);
     if (!baseUrl) {
       return loginError(res, 'Zoho sign-in is not configured for this account region.');
     }
 
-    let stage = 'token_exchange';
+    let stage = 'oidc_discovery';
     try {
+      const configuration = await oidcConfiguration(baseUrl);
+      stage = 'token_exchange';
       const redirectUri = `${API_URI}/oauth/zoho/callback`;
-      const tokenResponse = await fetchJson<{id_token?: string; error?: string}>(`${baseUrl}/oauth/v2/token`, {
+      const tokenResponse = await fetchJson<{id_token?: string; access_token?: string; error?: string}>(configuration.token_endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: new URLSearchParams({
@@ -267,8 +308,26 @@ export class Zoho {
       }
 
       stage = 'id_token_verification';
-      const claims = await verifyIdToken(tokenResponse.id_token, baseUrl, expectedNonce);
-      const email = claims.email!.trim().toLowerCase();
+      const claims = await verifyIdToken(tokenResponse.id_token, configuration, expectedNonce);
+      stage = 'userinfo_lookup';
+      if (!tokenResponse.access_token) {
+        throw new Error('Zoho token response did not include an access token');
+      }
+      const userInfo = await fetchJson<ZohoUserInfo>(configuration.userinfo_endpoint, {
+        headers: {Authorization: `Bearer ${tokenResponse.access_token}`},
+      });
+      if (typeof claims.sub !== 'string' || !claims.sub || userInfo.sub !== claims.sub) {
+        throw new Error('Zoho userinfo subject did not match the ID token');
+      }
+      if (claims.email && userInfo.email && claims.email.toLowerCase() !== userInfo.email.toLowerCase()) {
+        throw new Error('Zoho userinfo email did not match the ID token');
+      }
+      const verifiedEmail = userInfo.email ?? claims.email;
+      const isEmailVerified = userInfo.email_verified === true || claims.email_verified === true;
+      if (!isEmailVerified || typeof verifiedEmail !== 'string' || !verifiedEmail.trim()) {
+        throw new Error('Zoho did not return a verified email address');
+      }
+      const email = verifiedEmail.trim().toLowerCase();
       stage = 'user_lookup';
       let user = await UserService.email(email);
       let isNewUser = false;
@@ -302,6 +361,9 @@ export class Zoho {
         'Zoho signing key was not found',
         'Zoho ID token nonce did not match',
         'Zoho did not return a verified email address',
+        'Zoho token response did not include an access token',
+        'Zoho userinfo subject did not match the ID token',
+        'Zoho userinfo email did not match the ID token',
       ]);
       const safeReason =
         error instanceof Error && (safeErrors.has(error.message) || /^Zoho returned HTTP \d{3}$/.test(error.message))

@@ -166,6 +166,7 @@ services:
       ZOHO_OAUTH_CLIENT: ${ZOHO_OAUTH_CLIENT:-}
       ZOHO_OAUTH_SECRET: ${ZOHO_OAUTH_SECRET:-}
       ZOHO_ACCOUNTS_URL: ${ZOHO_ACCOUNTS_URL:-https://accounts.zoho.com}
+      ZOHO_OIDC_DISCOVERY_URL: ${ZOHO_OIDC_DISCOVERY_URL:-}
 
       # Optional: Stripe
       STRIPE_SK: ${STRIPE_SK:-}

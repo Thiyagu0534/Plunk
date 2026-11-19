@@ -76,6 +76,7 @@ export const ZOHO_OAUTH_CLIENT = validateEnv('ZOHO_OAUTH_CLIENT', '');
 export const ZOHO_OAUTH_SECRET = validateEnv('ZOHO_OAUTH_SECRET', '');
 export const ZOHO_OAUTH_ENABLED = ZOHO_OAUTH_CLIENT !== '' && ZOHO_OAUTH_SECRET !== '';
 export const ZOHO_ACCOUNTS_URL = validateEnv('ZOHO_ACCOUNTS_URL', 'https://accounts.zoho.com').replace(/\/$/, '');
+export const ZOHO_OIDC_DISCOVERY_URL = validateEnv('ZOHO_OIDC_DISCOVERY_URL', '').replace(/\/$/, '');
 
 // Stripe (optional - if not set, billing features are disabled)
 export const STRIPE_SK = validateEnv('STRIPE_SK', '');
